@@ -1,0 +1,6 @@
+{
+  "name": "HomologIT — Homologação e Auditoria Mobile Corporativa",
+  "description": "Plataforma de diagnóstico de hardware, checklist de segurança da informação, análise de vulnerabilidades (CVEs) e homologação de smartphones para o parque corporativo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
