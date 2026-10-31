@@ -1,14 +1,18 @@
 'use client';
 
 import React, {useState} from 'react';
-import {X, Copy, Check, Download, Printer} from 'lucide-react';
+import {X, Copy, Check, Download, FileDown, Printer} from 'lucide-react';
 import {
   DeviceSpec,
   HomologationReport,
   ChecklistItem,
+  TestBatterySummary,
   USAGE_PROFILE_LABELS,
+  formatDurationTimer,
+  evaluateTestBatteryDiagnostics,
 } from '@/lib/homologation-engine';
 import {LiveProbeResult} from '@/lib/device-probe';
+import {downloadHomologationPdf} from '@/lib/pdf-exporter';
 
 interface HomologationReportModalProps {
   isOpen: boolean;
@@ -17,6 +21,7 @@ interface HomologationReportModalProps {
   report: HomologationReport;
   checklist: ChecklistItem[];
   liveProbe: LiveProbeResult | null;
+  batterySummary?: TestBatterySummary | null;
 }
 
 export function HomologationReportModal({
@@ -26,10 +31,17 @@ export function HomologationReportModal({
   report,
   checklist,
   liveProbe,
+  batterySummary,
 }: HomologationReportModalProps) {
   const [copied, setCopied] = useState(false);
+  const [pdfDownloaded, setPdfDownloaded] = useState(false);
 
   if (!isOpen) return null;
+
+  const effectiveSummary =
+    batterySummary && Array.isArray(batterySummary.executionLogs)
+      ? batterySummary
+      : evaluateTestBatteryDiagnostics(device, checklist, report.activeCves);
 
   const protocolId = `HOM-${device.manufacturer.slice(0, 3).toUpperCase()}-${device.id
     .slice(-4)
@@ -44,6 +56,7 @@ export function HomologationReportModal({
       `Hardware: ${device.socChipset} | ${device.ramGb} GB RAM | ${device.storageGb} GB Flash`,
       `Keystore: ${device.hardwareKeystore} | MDM: ${device.mdmSupport}`,
       `Modalidade Avaliada: ${USAGE_PROFILE_LABELS[device.usageProfile]}`,
+      `Tempo de Execução da Bateria: ${formatDurationTimer(effectiveSummary.totalDurationMs)} (${effectiveSummary.totalDurationMs} ms)`,
       `--------------------------------------------------------------------`,
       `PARECER FINAL: ${report.verdictLabel.toUpperCase()}`,
       `Índice de Conformidade Técnica: ${report.totalScore}/100`,
@@ -53,6 +66,12 @@ export function HomologationReportModal({
       ...report.domainScores.map(
         (d) =>
           `- ${d.label}: ${d.score}% (${d.passed} conformes, ${d.warnings} ressalvas, ${d.failed} falhas)`
+      ),
+      `--------------------------------------------------------------------`,
+      `LOG DE EXECUÇÃO DOS TESTES (${effectiveSummary.executionLogs.length} EVENTOS):`,
+      ...effectiveSummary.executionLogs.map(
+        (l) =>
+          `[+${String(l.timestampOffsetMs).padStart(4, '0')}ms] [${l.stageCode}] [${l.level}] (${l.durationMs}ms) ${l.subsystem} -> ${l.measuredOutput}`
       ),
       `--------------------------------------------------------------------`,
       `VULNERABILIDADES (CVEs) NÃO MITIGADAS NO FIRMWARE ATUAL (${report.activeCves.length}):`,
@@ -79,6 +98,18 @@ export function HomologationReportModal({
     }
   };
 
+  const handleDownloadPdf = () => {
+    downloadHomologationPdf({
+      device,
+      summary: effectiveSummary,
+      report,
+      checklist,
+      liveProbe,
+    });
+    setPdfDownloaded(true);
+    setTimeout(() => setPdfDownloaded(false), 2500);
+  };
+
   const handleDownloadJson = () => {
     const payload = {
       protocolId,
@@ -87,6 +118,8 @@ export function HomologationReportModal({
       verdict: report.verdict,
       verdictLabel: report.verdictLabel,
       totalScore: report.totalScore,
+      totalDurationMs: effectiveSummary.totalDurationMs,
+      executionLogs: effectiveSummary.executionLogs,
       domainScores: report.domainScores,
       activeCves: report.activeCves,
       recommendedPolicy: report.recommendedPolicy,
@@ -123,10 +156,12 @@ export function HomologationReportModal({
         <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
             <p className="text-xs font-mono text-slate-500 tabular-nums">
-              Protocolo {protocolId} · Auditoria de Segurança da Informação & Infraestrutura
+              Protocolo {protocolId} · Tempo da Bateria:{' '}
+              {formatDurationTimer(effectiveSummary.totalDurationMs)} (
+              {effectiveSummary.totalDurationMs} ms)
             </p>
             <h2 id="report-modal-title" className="text-xl font-bold text-slate-900 mt-1">
-              Laudo Técnico de Homologação de Dispositivo Móvel
+              Laudo Técnico e Log de Homologação de Dispositivo Móvel
             </h2>
           </div>
           <button
@@ -189,9 +224,10 @@ export function HomologationReportModal({
               </p>
             </div>
             <div>
-              <p className="text-slate-500">Enclave & Fim de Vida (EoL)</p>
+              <p className="text-slate-500">Tempo Gasto na Bateria</p>
               <p className="font-semibold text-slate-900 font-mono tabular-nums mt-0.5">
-                {device.hardwareKeystore} · {device.eolDate}
+                {formatDurationTimer(effectiveSummary.totalDurationMs)} (
+                {effectiveSummary.totalDurationMs} ms)
               </p>
             </div>
           </div>
@@ -257,11 +293,24 @@ export function HomologationReportModal({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              data-testid="btn-export-pdf-modal"
+              onClick={handleDownloadPdf}
+              className="px-4 py-2.5 min-h-[44px] text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+            >
+              {pdfDownloaded ? (
+                <Check className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <FileDown className="w-4 h-4" />
+              )}
+              {pdfDownloaded ? 'PDF Baixado com Sucesso!' : 'Exportar Laudo e Log em PDF'}
+            </button>
+            <button
+              type="button"
               onClick={handleCopyText}
               className="px-4 py-2.5 min-h-[44px] text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-900 hover:bg-slate-50 flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
             >
               {copied ? <Check className="w-4 h-4 text-emerald-700" /> : <Copy className="w-4 h-4" />}
-              {copied ? 'Laudo Copiado!' : 'Copiar Texto do Laudo'}
+              {copied ? 'Laudo Copiado!' : 'Copiar Texto'}
             </button>
             <button
               type="button"
@@ -269,23 +318,23 @@ export function HomologationReportModal({
               className="px-4 py-2.5 min-h-[44px] text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-900 hover:bg-slate-50 flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
             >
               <Download className="w-4 h-4" />
-              Exportar JSON Auditável
+              Exportar JSON
             </button>
             <button
               type="button"
               onClick={handlePrint}
-              className="px-4 py-2.5 min-h-[44px] text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-900 hover:bg-slate-50 flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+              className="px-3.5 py-2.5 min-h-[44px] text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-900 hover:bg-slate-50 flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
             >
               <Printer className="w-4 h-4" />
-              Imprimir / Salvar PDF
+              Imprimir
             </button>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2.5 min-h-[44px] text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className="px-4 py-2.5 min-h-[44px] text-xs font-semibold text-slate-700 hover:text-slate-900 rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
-            Concluir Visualização
+            Fechar
           </button>
         </div>
       </div>

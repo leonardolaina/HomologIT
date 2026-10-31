@@ -1,13 +1,16 @@
 'use client';
 
 import React, {useState} from 'react';
-import {X, PlusCircle} from 'lucide-react';
+import {X, PlusCircle, Cpu} from 'lucide-react';
 import {
   DeviceSpec,
   UsageProfile,
   validateCustomDeviceInput,
 } from '@/lib/homologation-engine';
-import {LiveProbeResult} from '@/lib/device-probe';
+import {
+  LiveProbeResult,
+  runLiveHardwareAndSecurityProbe,
+} from '@/lib/device-probe';
 
 interface NewDeviceModalProps {
   isOpen: boolean;
@@ -26,11 +29,11 @@ export function NewDeviceModal({
   const [model, setModel] = useState('');
   const [codename, setCodename] = useState('');
   const [osFamily, setOsFamily] = useState<'Android' | 'iOS' | 'Outro'>('Android');
-  const [osVersion, setOsVersion] = useState('Android 15');
-  const [securityPatchDate, setSecurityPatchDate] = useState('2026-09-01');
-  const [socChipset, setSocChipset] = useState('Qualcomm Snapdragon 7 Gen 3');
+  const [osVersion, setOsVersion] = useState('');
+  const [securityPatchDate, setSecurityPatchDate] = useState('');
+  const [socChipset, setSocChipset] = useState('');
   const [ramGb, setRamGb] = useState<number>(8);
-  const [storageGb, setStorageGb] = useState<number>(256);
+  const [storageGb, setStorageGb] = useState<number>(128);
   const [hardwareKeystore, setHardwareKeystore] = useState<
     'StrongBox / Secure Enclave' | 'TEE Padrão' | 'Software-only'
   >('StrongBox / Secure Enclave');
@@ -40,29 +43,38 @@ export function NewDeviceModal({
   const [mdmSupport, setMdmSupport] = useState<
     'Total (Zero-Touch / Knox / ABM)' | 'Perfil de Trabalho Padrão' | 'Limitado'
   >('Total (Zero-Touch / Knox / ABM)');
-  const [eolDate, setEolDate] = useState('2029-10-30');
+  const [eolDate, setEolDate] = useState('');
   const [wifiStandard, setWifiStandard] = useState<
     'WPA3-Enterprise (Wi-Fi 6E/7)' | 'WPA3-Personal / WPA2-Enterprise' | 'Apenas WPA2'
   >('WPA3-Enterprise (Wi-Fi 6E/7)');
   const [bootloaderLocked, setBootloaderLocked] = useState(true);
   const [usageProfile, setUsageProfile] = useState<UsageProfile>('cope_corporate');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isCapturing, setIsCapturing] = useState(false);
 
   if (!isOpen) return null;
 
-  const handlePrefillFromLiveProbe = () => {
-    if (!liveProbe) return;
-    const isIos = liveProbe.detectedPlatform.toLowerCase().includes('ios');
-    setManufacturer(isIos ? 'Apple' : 'Samsung / OEM Detectado');
-    setModel(`Aparelho em Bancada (${liveProbe.screenResolution})`);
-    setCodename(`HW-${liveProbe.cpuCores}C-${liveProbe.estimatedRamGb}G`);
+  const handlePrefillFromLiveProbe = async () => {
+    setIsCapturing(true);
+    const probe = liveProbe || (await runLiveHardwareAndSecurityProbe());
+    setIsCapturing(false);
+
+    const isIos = probe.detectedPlatform.toLowerCase().includes('ios');
+    const todayStr = new Date().toISOString().slice(0, 10);
+    setManufacturer(isIos ? 'Apple' : 'OEM Capturado');
+    setModel(`Aparelho Validado (${probe.screenResolution})`);
+    setCodename(`HW-${probe.cpuCores}C-${probe.estimatedRamGb}G`);
     setOsFamily(isIos ? 'iOS' : 'Android');
-    setOsVersion(liveProbe.detectedPlatform);
-    setSocChipset(liveProbe.gpuRenderer.slice(0, 48));
-    setRamGb(liveProbe.estimatedRamGb);
-    setStorageGb(liveProbe.storageQuotaGb && liveProbe.storageQuotaGb >= 32 ? liveProbe.storageQuotaGb : 128);
+    setOsVersion(probe.detectedPlatform);
+    setSecurityPatchDate(todayStr);
+    setEolDate('2029-10-30');
+    setSocChipset(probe.gpuRenderer.slice(0, 48));
+    setRamGb(probe.estimatedRamGb);
+    setStorageGb(
+      probe.storageQuotaGb && probe.storageQuotaGb >= 32 ? probe.storageQuotaGb : 128
+    );
     setHardwareKeystore(
-      liveProbe.webAuthnPlatformAvailable ? 'StrongBox / Secure Enclave' : 'TEE Padrão'
+      probe.webAuthnPlatformAvailable ? 'StrongBox / Secure Enclave' : 'TEE Padrão'
     );
     setErrors({});
   };
@@ -107,6 +119,13 @@ export function NewDeviceModal({
     };
 
     onAddDevice(newDevice);
+    setManufacturer('');
+    setModel('');
+    setCodename('');
+    setOsVersion('');
+    setSecurityPatchDate('');
+    setSocChipset('');
+    setEolDate('');
     setErrors({});
     onClose();
   };
@@ -138,21 +157,25 @@ export function NewDeviceModal({
           </button>
         </div>
 
-        {liveProbe && (
-          <div className="mt-4 p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="text-xs text-slate-600">
-              <span className="font-semibold text-slate-900">Telemetria local disponível:</span>{' '}
-              {liveProbe.detectedPlatform} · {liveProbe.cpuCores} Threads · ~{liveProbe.estimatedRamGb} GB RAM
-            </div>
-            <button
-              type="button"
-              onClick={handlePrefillFromLiveProbe}
-              className="px-3 py-2 min-h-[40px] text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors whitespace-nowrap shrink-0"
-            >
-              Preencher com Dados deste Aparelho
-            </button>
+        <div className="mt-4 p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-xs text-slate-600">
+            <span className="font-semibold text-slate-900">
+              Captura Automática de Hardware:
+            </span>{' '}
+            Preencha os campos lendo diretamente os sensores e GPU/CPU do dispositivo atual.
           </div>
-        )}
+          <button
+            type="button"
+            onClick={handlePrefillFromLiveProbe}
+            disabled={isCapturing}
+            className="px-3.5 py-2 min-h-[40px] text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            <span>
+              {isCapturing ? 'Capturando...' : 'Preencher com Dados deste Aparelho'}
+            </span>
+          </button>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-4" noValidate>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

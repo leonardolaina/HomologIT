@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#0f172a" />
+  <rect x="36" y="36" width="440" height="440" rx="72" fill="none" stroke="#334155" stroke-width="6" />
+  <path d="M256 96L384 148V248C384 336 328 402 256 428C184 402 128 336 128 248V148L256 96Z" fill="#1e293b" stroke="#10b981" stroke-width="16" stroke-linejoin="round" />
+  <path d="M206 258L240 292L312 216" fill="none" stroke="#10b981" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="256" y="476" text-anchor="middle" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="34" letter-spacing="4">HOMOLOGIT</text>
+</svg>
